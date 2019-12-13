@@ -16,6 +16,7 @@ bool isArgument(const char* arg);
 int processFlag(const char* arg);
 void processStdinInput();
 int processFile(const char* filename);
+void printSourceDeclaration(const char* fileName, const char* source);
 
 //arguments / flags
 #define ARG_QUIET "-q"
@@ -24,6 +25,7 @@ int processFile(const char* filename);
 #define ARG_ALL_FRAGS "-frag"
 #define ARG_FILTER "-f"
 #define ARG_HELP "-h"
+#define ARG_GENERATE "-g"
 
 static const char* USAGE_STR = ""
 "Usage: \n\t"
@@ -58,6 +60,9 @@ int typeOverride = -1;
 //doesnt process any files that do not fit the interred shader type filename pattern
 bool filterFilenames = false;
 
+//Outputs generated C code version of the source
+bool generateC = false;
+
 //used to disable / enable statements depending on the current log type
 #define LOG_DEBUG(x) if(logType == LT_VERBOSE) x;
 #define LOG_INFO(x) if(logType > LT_QUIET) x;
@@ -79,6 +84,10 @@ int main(int argc, const char**  argv) {
     }
 
     createContext();
+
+    if(generateC) {
+        //output header code
+    }
 
     //iterate over filenames
     for(int i = 0; i < argc - 1; i++){
@@ -107,6 +116,11 @@ int main(int argc, const char**  argv) {
         printf("%s", USAGE_STR);
         return 1;
     }
+
+    if(generateC) {
+        //output footer code
+    }
+
 
     destroyContext();
 
@@ -185,16 +199,16 @@ void destroyContext() {
 int getType(const char* filename) {
     char* dotPostfix = strrchr(filename, '.');
 
+    if(typeOverride != -1) {
+        return typeOverride;
+    }
+
     if(dotPostfix && strcmp(dotPostfix, ".vert") == 0) {
         return GL_VERTEX_SHADER;
     }
 
     if(dotPostfix && strcmp(dotPostfix, ".frag") == 0) {
         return GL_FRAGMENT_SHADER;
-    }
-
-    if(typeOverride != -1) {
-        return typeOverride;
     }
 
     return -1;
@@ -216,7 +230,9 @@ int processFlag(const char* arg)
         logType = LT_QUIET;
     }
     else if(strcmp(arg, ARG_VERBOSE) == 0) {
-        logType = LT_VERBOSE;
+        if(!generateC) {
+            logType = LT_VERBOSE;
+        }
     }
     else if(strcmp(arg, ARG_ALL_VERTS) == 0) {
         typeOverride = GL_VERTEX_SHADER;
@@ -226,6 +242,10 @@ int processFlag(const char* arg)
     }
     else if(strcmp(arg, ARG_FILTER) == 0) {
         filterFilenames = true;
+    }
+    else if(strcmp(arg, ARG_GENERATE) == 0) {
+        logType = LT_QUIET;
+        generateC = true;
     } else if(strcmp(arg, ARG_HELP) == 0) {
         printf("%s", USAGE_STR);
         printf("%s", HELP_STR);
@@ -326,12 +346,18 @@ int processFile(const char* filename)
     LOG_DEBUG(printf("COMPILING: %s\n", filename))
     char* log;
     int ret = compileShader(source, type, &log);
+
+    if(ret == 0 && generateC) {
+        printSourceDeclaration(filename, source);
+    }
+
     free(source);
 
     switch (ret)
     {
     case 0:
         LOG_INFO(printf("%s,PASSED\n", filename))
+
         break;
     case 1:
         LOG_ERROR(printf("%s,FAILED\n", filename))
@@ -346,4 +372,43 @@ int processFile(const char* filename)
     }
 
     return 0;
+}
+
+void printSourceDeclaration(const char* fileName, const char* source)
+{
+    //assumes filename is in the format ./dir/dir/dir/name.vert
+    //char source_FILENAME[] = { bytes };
+    char* dotPlace = strrchr(fileName, '.');
+    char* lastSlash = strrchr(fileName, '/');
+    int length = (int)(dotPlace - lastSlash - 1);
+
+    char nameBuffer[255];
+
+    if(lastSlash == NULL) {
+        length = (int)(dotPlace - fileName);
+        strncpy(nameBuffer, fileName, length);
+    } else {
+        strncpy(nameBuffer, lastSlash + 1, length);
+    }
+
+    nameBuffer[length] = 0;
+
+    printf("const char source_");
+    switch (getType(fileName))
+    {
+    case GL_VERTEX_SHADER:
+        printf("vert_");
+        break;
+    case GL_FRAGMENT_SHADER:
+        printf("frag_");
+        break;
+    default:
+        break;
+    }
+    printf("%s[] = {", nameBuffer);
+
+    for(int i = 0; i < strlen(source); i++) {
+        printf("0x%X,", source[i]);
+    }
+    printf("0x00 };\n");
 }
